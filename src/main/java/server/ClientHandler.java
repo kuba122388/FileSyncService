@@ -114,7 +114,7 @@ public class ClientHandler implements Runnable {
 
         File outputFile = outputPath.toFile();
 
-        try (BufferedOutputStream fileOut = new BufferedOutputStream(new FileOutputStream(outputPath.toFile()))) {
+        try (BufferedOutputStream fileOut = new BufferedOutputStream(new FileOutputStream(outputFile))) {
             byte[] buffer = new byte[8192];
             int bytesRead;
             long totalRead = 0;

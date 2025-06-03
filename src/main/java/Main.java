@@ -7,49 +7,50 @@ import java.util.Scanner;
 public class Main {
     public static void main(String[] args) {
         Scanner scanner = new Scanner(System.in);
-        int choice;
 
         while (true) {
             System.out.println("Options:\n[1] Server\n[2] Client\n[3] Exit\nStart as: ");
 
-            try {
-                choice = Integer.parseInt(scanner.nextLine());
-            } catch (NumberFormatException e) {
-                System.out.println("Wrong input.\n");
-                continue;
+            int choice = readInt(scanner, "Choose an option: ");
+            switch (choice) {
+                case 1 -> {
+                    startServer(scanner);
+                    return;
+                }
+                case 2 -> {
+                    startClient(scanner);
+                    return;
+                }
+                case 3 -> {
+                    System.out.println("Exiting...");
+                    return;
+                }
+                default -> System.out.println("Option does not exist.\n");
             }
+        }
+    }
 
-            if (choice == 1) {
-                try {
-                    System.out.print("Enter TCP port for server: ");
-                    int port = Integer.parseInt(scanner.nextLine());
+    private static void startServer(Scanner scanner) {
+        int port = readInt(scanner, "Enter TCP port for server: ");
+        int syncInterval = readInt(scanner, "Enter synchronization frequency (in minutes): ");
+        Server.startServer(port, syncInterval);
+        new Thread(new MulticastResponder(port)).start();
+    }
 
-                    System.out.print("Enter synchronization frequency (in minutes): ");
-                    int syncInterval = Integer.parseInt(scanner.nextLine());
+    private static void startClient(Scanner scanner) {
+        System.out.println("Connect to USP server:\n[1] Automatically\n[2] Manually");
+        int option = readInt(scanner, "Your choice: ");
+        boolean auto = option == 1;
+        new Thread(new Client(auto)).start();
+    }
 
-                    Server.startServer(port, syncInterval);
-                    new Thread(new MulticastResponder(port)).start();
-                    break;
-
-                } catch (NumberFormatException e) {
-                    System.out.println("Invalid number.\n");
-                }
-            } else if (choice == 2) {
-                System.out.println("How would you like to connect to USP server?\n[1] Automatically\n[2] Manually");
-
-                int option = Integer.parseInt(scanner.nextLine());
-                if (option == 1) {
-                    new Thread(new Client(true)).start();
-                    break;
-                } else if (option == 2) {
-                    new Thread(new Client(true)).start();
-                    break;
-                }
-            } else if (choice == 3) {
-                System.out.println("Exiting...");
-                break;
-            } else {
-                System.out.println("Option does not exist.\n");
+    private static int readInt(Scanner scanner, String prompt) {
+        while (true) {
+            System.out.print(prompt);
+            try {
+                return Integer.parseInt(scanner.nextLine());
+            } catch (NumberFormatException e) {
+                System.out.println("Invalid number. Try again.\n");
             }
         }
     }

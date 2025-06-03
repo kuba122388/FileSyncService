@@ -16,17 +16,16 @@ import java.util.List;
 import java.util.Scanner;
 
 public class Client implements Runnable {
-    InetAddress serverIp;
-    int serverPort = -1;
+    private InetAddress serverIp;
+    private int serverPort = -1;
     private String userID;
     private String directoryPath;
 
-    private boolean autoFind;
-
-    final Object lock = new Object();
+    private final boolean autoFind;
+    private final Object lock = new Object();
 
     public Client(boolean findServer) {
-        autoFind = findServer;
+        this.autoFind = findServer;
     }
 
     @Override
@@ -34,88 +33,111 @@ public class Client implements Runnable {
         MulticastDiscovery multicastDiscovery = new MulticastDiscovery(lock);
 
         if (autoFind) {
-            Thread thread = new Thread(multicastDiscovery);
-            thread.start();
-            synchronized (lock) {
-                try {
-                    lock.wait();
-                } catch (InterruptedException e) {
-                    // Empty
-                }
-            }
-            serverIp = multicastDiscovery.getIp();
-            serverPort = multicastDiscovery.getServerUSPPort();
+            discoverServer(multicastDiscovery);
         }
 
         while (true) {
-            if(!autoFind) getUserInput();
+            promptUserInput();
 
-            Socket socket = new Socket();
 
-            try {
-                // Connect to server within 5 s
+            try (Socket socket = new Socket()) {
                 socket.connect(new InetSocketAddress(serverIp, serverPort), 5000);
+                connectAndSync(socket);
 
-                // Create list about files to archive
-                List<FileInfo> files = getFiles();
-
-                // Information about client with files to upload
-                ClientData clientInfo = new ClientData(userID, files);
-                String clientInfoJson = JsonUtils.toJson(clientInfo);
-
-                // Process of sending data:
-                try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
-                     BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()))) {
-
-                    // Sending clientInfo as a Json
-                    System.out.println("\nSending information about files to archive...");
-                    writer.write(clientInfoJson + "\n");
-                    writer.flush();
-
-                    // Get feedback (list of tasks) about files needed an update
-                    TaskList taskList;
-                    String taskListJson = reader.readLine();
-                    taskList = JsonUtils.fromJson(taskListJson, TaskList.class);
-                    Thread.sleep(1000); // Delay between sending files
-
-                    // Sending files to server
-                    if (taskList.outdatedFiles().isEmpty()) {
-                        System.out.println("All files were up to date!");
-                    } else {
-                        int filesSent = sendFiles(socket, taskList);
-                        if (filesSent != taskList.outdatedFiles().size()) {
-                            System.out.println("There was a problem with sending some files.\n");
-                        }
-                    }
-
-                    // Get the time of from server of the next update
-                    String localDateString = reader.readLine();
-                    LocalDateTime nextSync = LocalDateTime.parse(localDateString);
-
-                    // Displaying next synchronization time and sleeping the thread
-                    System.out.println("Next synchronization: " + nextSync);
-                    Duration diff = Duration.between(LocalDateTime.now(), nextSync);
-                    Thread.sleep(diff);
-                    if (autoFind) multicastDiscovery.setPaused(true);
-
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
+                if (autoFind) {
+                    multicastDiscovery.setPaused(true);
                 }
             } catch (IOException e) {
                 System.out.println("Could not connect to server within 5 seconds.\n");
-                try {
-                    socket.close();
-                } catch (IOException ex) {
-                    // Ignored
-                }
             }
         }
     }
 
+    private void discoverServer(MulticastDiscovery discovery) {
+        Thread thread = new Thread(discovery);
+        thread.start();
+        synchronized (lock) {
+            try {
+                lock.wait();
+                serverIp = discovery.getIp();
+                serverPort = discovery.getServerUSPPort();
+            } catch (InterruptedException ignored) {
+            }
+        }
+    }
+
+    private void promptUserInput() {
+        Scanner scanner = new Scanner(System.in);
+
+        while (!autoFind) {
+            try {
+                System.out.print("Enter server IP: ");
+                serverIp = InetAddress.getByName(scanner.nextLine());
+
+                System.out.print("Enter server port: ");
+                serverPort = Integer.parseInt(scanner.nextLine());
+
+                if (serverPort < 1 || serverPort > 65535) {
+                    System.out.println("Invalid port\n");
+                    continue;
+                }
+                break;
+            } catch (Exception e) {
+                System.out.println("Invalid IP or port, try again.\n");
+            }
+        }
+
+        System.out.print("Enter your ID: ");
+        userID = scanner.nextLine();
+
+        System.out.print("Enter your directory to archive: ");
+        directoryPath = scanner.nextLine();
+    }
+
+    private void connectAndSync(Socket socket) {
+        try (
+                BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
+                BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()))
+        ) {
+            List<FileInfo> files = getFiles();
+            ClientData clientInfo = new ClientData(userID, files);
+            String clientInfoJson = JsonUtils.toJson(clientInfo);
+
+            System.out.println("\nSending information about files to archive...");
+            writer.write(clientInfoJson + "\n");
+            writer.flush();
+
+            String taskListJson = reader.readLine();
+            TaskList taskList = JsonUtils.fromJson(taskListJson, TaskList.class);
+
+            Thread.sleep(1000); // Delay before sending files
+
+            if (taskList.outdatedFiles().isEmpty()) {
+                System.out.println("All files are up to date!");
+            } else {
+                int filesSent = sendFiles(socket, taskList);
+                if (filesSent != taskList.outdatedFiles().size()) {
+                    System.out.println("Some files could not be sent.\n");
+                }
+            }
+
+            String localDateString = reader.readLine();
+            LocalDateTime nextSync = LocalDateTime.parse(localDateString);
+            System.out.println("Next synchronization: " + nextSync);
+
+            Duration waitTime = Duration.between(LocalDateTime.now(), nextSync);
+            Thread.sleep(waitTime);
+
+        } catch (IOException | InterruptedException e) {
+            System.out.println("Error during synchronization: " + e.getMessage());
+        }
+    }
+
     private int sendFiles(Socket socket, TaskList taskList) throws IOException {
-        int filesSend = 0;
+        int filesSent = 0;
+
         for (FileInfo fileInfo : taskList.outdatedFiles()) {
-            File file = new File(directoryPath + "\\" + fileInfo.filePath());
+            File file = new File(directoryPath, fileInfo.filePath());
 
             if (!file.exists()) {
                 System.out.println("File does not exist: " + fileInfo.filePath());
@@ -139,11 +161,11 @@ public class Client implements Runnable {
 
                 dataOut.flush();
                 System.out.println("File sent: " + fileInfo.filePath());
-                filesSend++;
+                filesSent++;
             }
         }
 
-        return filesSend;
+        return filesSent;
     }
 
     private List<FileInfo> getFiles() {
@@ -151,32 +173,4 @@ public class Client implements Runnable {
         FileWorker fileWorker = new FileWorker(basePath, false);
         return fileWorker.walkFolder();
     }
-
-    private void getUserInput() {
-        Scanner scanner = new Scanner(System.in);
-
-        if (!autoFind) {
-            while (true) {
-                try {
-                    System.out.print("Enter server IP: ");
-                    serverIp = InetAddress.getByName(scanner.nextLine());
-                    System.out.print("Enter server port: ");
-                    serverPort = Integer.parseInt(scanner.nextLine());
-                    if (serverPort < 1 || serverPort > 65535) {
-                        System.out.println("Invalid port\n");
-                        continue;
-                    }
-                    break;
-                } catch (Exception e) {
-                    System.out.println("Invalid IP or port, try again.\n");
-                }
-            }
-        }
-        System.out.print("Enter your ID: ");
-        userID = scanner.nextLine();
-
-        System.out.print("Enter your directory to archive: ");
-        directoryPath = scanner.nextLine();
-    }
-
 }
