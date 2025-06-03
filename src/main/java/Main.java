@@ -38,26 +38,7 @@ public class Main {
 
             } else if (choice == 2) {
                 // Client
-                System.out.print("Enter server IP: ");
-                String input = scanner.nextLine();
-
-                InetAddress ip;
-                try {
-                    ip = InetAddress.getByName(input);
-                } catch (UnknownHostException e) {
-                    System.out.println("Invalid IP address.\n");
-                    continue;
-                }
-
-                try {
-                    System.out.print("Enter server port: ");
-                    int port = Integer.parseInt(scanner.nextLine());
-                    Client.startClient(ip, port);
-                    break;
-                } catch (NumberFormatException e) {
-                    System.out.println("Invalid port number.\n");
-                }
-
+                Client.startClient();
             } else if (choice == 3) {
                 System.out.println("Exiting...");
                 break;

@@ -18,12 +18,22 @@ public class TCPServer implements Runnable{
     public void run(){
         try(ServerSocket serverSocket = new ServerSocket(port)){
             System.out.println("Server TCP started! Waiting for connections...");
-            Socket clientSocket = serverSocket.accept();
-            System.out.println("! New connection established: " + clientSocket.getInetAddress() + ":" + clientSocket.getPort());
+            while(true) {
+                Socket clientSocket = serverSocket.accept();
+                System.out.println("! New connection established: " + clientSocket.getInetAddress() + ":" + clientSocket.getPort());
 
-            ClientHandler clientHandler = new ClientHandler(clientSocket);
-            new Thread(clientHandler).start();
+                ClientHandler clientHandler = new ClientHandler(clientSocket, syncInterval);
+                Thread clientThread = new Thread(clientHandler);
+                clientThread.start();
 
+                try {
+                    clientThread.join();
+                } catch (InterruptedException e) {
+                    System.out.println("Wątek został przerwany");
+                }
+
+                System.out.println("Client served, waiting for the next one...");
+            }
         } catch (IOException e){
             System.out.println("Encountered problem when opening server socker on port: " + port);
         }
