@@ -2,7 +2,7 @@ package common.model;
 
 import java.util.List;
 
-public record ClientInfo (
+public record ClientData(
         String clientId,
         List<FileInfo> files
 ){}

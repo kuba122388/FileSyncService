@@ -1,117 +1,152 @@
 package client;
 
 import common.json.JsonUtils;
-import common.model.ClientInfo;
+import common.model.ClientData;
 import common.model.FileInfo;
 import common.model.TaskList;
 import common.utils.FileWorker;
 
 import java.io.*;
 import java.net.*;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.InputMismatchException;
 import java.util.List;
 import java.util.Scanner;
 
 public class Client {
-    public static void startClient() {
-        Scanner scanner = new Scanner(System.in);
+    InetAddress serverIp;
+    int serverPort;
+    private String userID;
+    private String directoryPath;
 
-        InetAddress ip;
-        int port;
-
+    public void start() {
         while (true) {
-            while (true) {
-                System.out.print("Enter server IP: ");
-                String input = scanner.nextLine();
+            getUserInput();
 
-                try {
-                    ip = InetAddress.getByName(input);
-                } catch (UnknownHostException e) {
-                    System.out.println("Invalid IP address.\n");
-                    continue;
-                }
+            Socket socket = new Socket();
 
-                try {
-                    System.out.print("Enter server port: ");
-                    port = Integer.parseInt(scanner.nextLine());
-                    break;
-                } catch (NumberFormatException e) {
-                    System.out.println("Invalid port number.\n");
-                }
-            }
+            try {
+                // Connect to server within 5 s
+                socket.connect(new InetSocketAddress(serverIp, serverPort), 5000);
 
-            try (Socket socket = new Socket(ip, port)) {
+                // Create list about files to archive
+                List<FileInfo> files = getFiles();
 
-                System.out.println("Enter your ID: ");
-                String userID = scanner.nextLine();
+                // Information about client with files to upload
+                ClientData clientInfo = new ClientData(userID, files);
+                String clientInfoJson = JsonUtils.toJson(clientInfo);
 
-                System.out.println("Enter your directory to archive: ");
-                String directory = scanner.nextLine();
-
-                Path basePath = Paths.get(directory);
-                FileWorker fileWorker = new FileWorker(basePath);
-                List<FileInfo> files = fileWorker.walkFolder();
-
-                ClientInfo clientInfo = new ClientInfo(userID, files);
-                String data = JsonUtils.toJson(clientInfo);
-
-                System.out.println("Sending data to server...");
+                // Process of sending data:
                 try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
                      BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()))) {
 
-                    writer.write(data + "\n");
+                    // Sending clientInfo as a Json
+                    System.out.println("\nSending information about files to archive...");
+                    writer.write(clientInfoJson + "\n");
                     writer.flush();
 
+                    // Get feedback (list of tasks) about files needed an update
                     TaskList taskList;
                     String taskListJson = reader.readLine();
                     taskList = JsonUtils.fromJson(taskListJson, TaskList.class);
+                    Thread.sleep(1000); // Delay between sending files
 
-                    for (FileInfo fileInfo : taskList.outdatedFiles()) {
-                        File file = new File(directory + "\\" + fileInfo.filePath());
-
-                        if (!file.exists()) {
-                            System.out.println("File does not exist: " + fileInfo.filePath());
-                            continue;
-                        }
-
-                        DataOutputStream dataOut = new DataOutputStream(socket.getOutputStream());
-
-                        dataOut.writeUTF(fileInfo.filePath());
-                        dataOut.writeLong(file.length());
-                        dataOut.writeLong(file.lastModified());
-
-                        try (BufferedInputStream fileIn = new BufferedInputStream(new FileInputStream(file))) {
-                            byte[] buffer = new byte[8192];
-                            int count;
-
-                            while ((count = fileIn.read(buffer)) > 0) {
-                                dataOut.write(buffer, 0, count);
-                            }
-
-                            dataOut.flush();
-                            System.out.println("File sent: " + fileInfo.filePath());
+                    // Sending files to server
+                    if(taskList.outdatedFiles().isEmpty()) {
+                        System.out.println("All files were up to date!");
+                    } else{
+                        int filesSent = sendFiles(socket, taskList);
+                        if (filesSent != taskList.outdatedFiles().size()) {
+                            System.out.println("There was a problem with sending some files.\n");
                         }
                     }
 
+                    // Get the time of from server of the next update
                     String localDateString = reader.readLine();
                     LocalDateTime nextSync = LocalDateTime.parse(localDateString);
 
+                    // Displaying next synchronization time and sleeping the thread
                     System.out.println("Next synchronization: " + nextSync);
                     Duration diff = Duration.between(LocalDateTime.now(), nextSync);
                     Thread.sleep(diff);
+
+
                 } catch (InterruptedException e) {
                     throw new RuntimeException(e);
                 }
             } catch (IOException e) {
-                e.printStackTrace();
+                System.out.println("Could not connect to server within 5 seconds.\n");
+                try {
+                    socket.close();
+                } catch (IOException ex) {
+                    // Ignored
+                }
             }
         }
     }
+
+    private int sendFiles(Socket socket, TaskList taskList) throws IOException {
+        int filesSend = 0;
+        for (FileInfo fileInfo : taskList.outdatedFiles()) {
+            File file = new File(directoryPath + "\\" + fileInfo.filePath());
+
+            if (!file.exists()) {
+                System.out.println("File does not exist: " + fileInfo.filePath());
+                continue;
+            }
+
+            System.out.println("Sending file: " + fileInfo.filePath());
+            DataOutputStream dataOut = new DataOutputStream(socket.getOutputStream());
+
+            dataOut.writeUTF(fileInfo.filePath());
+            dataOut.writeLong(file.length());
+            dataOut.writeLong(file.lastModified());
+
+            try (BufferedInputStream fileIn = new BufferedInputStream(new FileInputStream(file))) {
+                byte[] buffer = new byte[8192];
+                int count;
+
+                while ((count = fileIn.read(buffer)) > 0) {
+                    dataOut.write(buffer, 0, count);
+                }
+
+                dataOut.flush();
+                System.out.println("File sent: " + fileInfo.filePath());
+                filesSend++;
+            }
+        }
+
+        return filesSend;
+    }
+
+    private List<FileInfo> getFiles() {
+        Path basePath = Paths.get(directoryPath);
+        FileWorker fileWorker = new FileWorker(basePath, false);
+        return fileWorker.walkFolder();
+    }
+
+    private void getUserInput() {
+        Scanner scanner = new Scanner(System.in);
+
+        while (true) {
+            try {
+                System.out.print("Enter server IP: ");
+                serverIp = InetAddress.getByName(scanner.nextLine());
+                System.out.print("Enter server port: ");
+                serverPort = Integer.parseInt(scanner.nextLine());
+                break;
+            } catch (Exception e) {
+                System.out.println("Invalid IP or port, try again.\n");
+            }
+        }
+
+        System.out.print("Enter your ID: ");
+        userID = scanner.nextLine();
+
+        System.out.print("Enter your directory to archive: ");
+        directoryPath = scanner.nextLine();
+    }
+
 }

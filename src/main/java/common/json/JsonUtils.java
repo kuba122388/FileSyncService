@@ -1,8 +1,6 @@
 package common.json;
 
 import com.google.gson.Gson;
-import common.model.ClientInfo;
-import common.model.TaskList;
 
 public class JsonUtils {
     private static final Gson gson = new Gson();

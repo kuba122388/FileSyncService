@@ -1,8 +1,6 @@
 import client.Client;
 import server.Server;
 
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.util.Scanner;
 
 public class Main {
@@ -21,7 +19,6 @@ public class Main {
             }
 
             if (choice == 1) {
-                // Server
                 try {
                     System.out.print("Enter TCP port for server: ");
                     int port = Integer.parseInt(scanner.nextLine());
@@ -37,8 +34,8 @@ public class Main {
                 }
 
             } else if (choice == 2) {
-                // Client
-                Client.startClient();
+                Client client = new Client();
+                client.start();
             } else if (choice == 3) {
                 System.out.println("Exiting...");
                 break;
