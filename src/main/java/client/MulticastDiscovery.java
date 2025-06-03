@@ -14,13 +14,13 @@ public class MulticastDiscovery implements Runnable {
 
     private final Object lock;
 
-    private volatile boolean paused = false;
+    private volatile boolean paused = true;
 
-    MulticastDiscovery(Object lock){
+    MulticastDiscovery(Object lock) {
         this.lock = lock;
     }
 
-    public InetAddress getIp(){
+    public InetAddress getIp() {
         return ip;
     }
 
@@ -28,7 +28,7 @@ public class MulticastDiscovery implements Runnable {
         return serverUSPPort;
     }
 
-    public void setPaused(boolean paused){
+    public void setPaused(boolean paused) {
         this.paused = paused;
     }
 
@@ -40,21 +40,25 @@ public class MulticastDiscovery implements Runnable {
             socket.joinGroup(group);
             socket.setSoTimeout(5000);
 
-            Message discoverMsg = new Message("DISCOVER", multicastPort);
-            byte[] msgJson = JsonUtils.toJson(discoverMsg).getBytes();
-            DatagramPacket discoverPacket = new DatagramPacket(msgJson, msgJson.length, group, multicastPort);
-            socket.send(discoverPacket);
 
-            System.out.println("Waiting for server response on multicast...");
+
             while (true) {
-                while(paused);
+                while (paused);
+                System.out.println("Waiting for server response on multicast...");
+
+                Message discoverMsg = new Message("DISCOVER", multicastPort);
+                byte[] msgJson = JsonUtils.toJson(discoverMsg).getBytes();
+                DatagramPacket discoverPacket = new DatagramPacket(msgJson, msgJson.length, group, multicastPort);
+                socket.send(discoverPacket);
+
                 try {
                     byte[] buf = new byte[256];
                     DatagramPacket responsePacket = new DatagramPacket(buf, buf.length);
                     socket.receive(responsePacket);
 
-                    if (responsePacket.getAddress() == discoverPacket.getAddress()) {
-                        continue;
+                    InetAddress localAddress = InetAddress.getLocalHost();
+                    if (responsePacket.getAddress().equals(localAddress)) {
+                        socket.receive(responsePacket);
                     }
 
                     String json = new String(responsePacket.getData(), 0, responsePacket.getLength());
@@ -65,7 +69,7 @@ public class MulticastDiscovery implements Runnable {
                         ip = responsePacket.getAddress();
                         serverUSPPort = response.port();
                         paused = true;
-                        synchronized (lock){
+                        synchronized (lock) {
                             lock.notify();
                         }
                     }
@@ -73,7 +77,6 @@ public class MulticastDiscovery implements Runnable {
                 } catch (SocketTimeoutException e) {
                     System.out.println("No answer within 5 seconds.");
                     Thread.sleep(10000);
-                    socket.send(discoverPacket);
                 }
             }
 

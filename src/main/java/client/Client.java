@@ -8,6 +8,7 @@ import common.utils.FileWorker;
 
 import java.io.*;
 import java.net.*;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
@@ -21,7 +22,7 @@ public class Client implements Runnable {
     private String userID;
     private String directoryPath;
 
-    private final boolean autoFind;
+    private boolean autoFind;
     private final Object lock = new Object();
 
     public Client(boolean findServer) {
@@ -31,14 +32,15 @@ public class Client implements Runnable {
     @Override
     public void run() {
         MulticastDiscovery multicastDiscovery = new MulticastDiscovery(lock);
+        Thread thread = new Thread(multicastDiscovery);
+        thread.start();
 
-        if (autoFind) {
-            discoverServer(multicastDiscovery);
-        }
 
         while (true) {
+            if (autoFind) {
+                discoverServer(multicastDiscovery);
+            }
             promptUserInput();
-
 
             try (Socket socket = new Socket()) {
                 socket.connect(new InetSocketAddress(serverIp, serverPort), 5000);
@@ -48,14 +50,28 @@ public class Client implements Runnable {
                     multicastDiscovery.setPaused(true);
                 }
             } catch (IOException e) {
-                System.out.println("Could not connect to server within 5 seconds.\n");
+                System.err.println("Could not connect to server within 5 seconds.\n");
+            }
+
+            Scanner scanner = new Scanner(System.in);
+            while (true) {
+                System.out.println("Connect to USP server:\n[1] Automatically\n[2] Manually");
+                System.out.println("Your choice: ");
+                int option;
+                try {
+                    option = Integer.parseInt(scanner.nextLine());
+                } catch (NumberFormatException ex) {
+                    System.out.println("Invalid number. Try again.\n");
+                    continue;
+                }
+                autoFind = option == 1;
+                break;
             }
         }
     }
 
     private void discoverServer(MulticastDiscovery discovery) {
-        Thread thread = new Thread(discovery);
-        thread.start();
+        discovery.setPaused(false);
         synchronized (lock) {
             try {
                 lock.wait();
@@ -128,8 +144,11 @@ public class Client implements Runnable {
             Duration waitTime = Duration.between(LocalDateTime.now(), nextSync);
             Thread.sleep(waitTime);
 
-        } catch (IOException | InterruptedException e) {
-            System.out.println("Error during synchronization: " + e.getMessage());
+        } catch(NoSuchFileException e){
+            System.err.println("Files doesn't exist. " + e.getMessage());
+        }
+        catch (IOException | InterruptedException e) {
+            System.err.println("Error during synchronization: " + e.getMessage());
         }
     }
 
@@ -168,7 +187,7 @@ public class Client implements Runnable {
         return filesSent;
     }
 
-    private List<FileInfo> getFiles() {
+    private List<FileInfo> getFiles() throws NoSuchFileException {
         Path basePath = Paths.get(directoryPath);
         FileWorker fileWorker = new FileWorker(basePath, false);
         return fileWorker.walkFolder();
