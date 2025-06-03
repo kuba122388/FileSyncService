@@ -1,4 +1,5 @@
 import client.Client;
+import server.MulticastResponder;
 import server.Server;
 
 import java.util.Scanner;
@@ -27,15 +28,23 @@ public class Main {
                     int syncInterval = Integer.parseInt(scanner.nextLine());
 
                     Server.startServer(port, syncInterval);
+                    new Thread(new MulticastResponder(port)).start();
                     break;
 
                 } catch (NumberFormatException e) {
                     System.out.println("Invalid number.\n");
                 }
-
             } else if (choice == 2) {
-                Client client = new Client();
-                client.start();
+                System.out.println("How would you like to connect to USP server?\n[1] Automatically\n[2] Manually");
+
+                int option = Integer.parseInt(scanner.nextLine());
+                if (option == 1) {
+                    new Thread(new Client(true)).start();
+                    break;
+                } else if (option == 2) {
+                    new Thread(new Client(true)).start();
+                    break;
+                }
             } else if (choice == 3) {
                 System.out.println("Exiting...");
                 break;

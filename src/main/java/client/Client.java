@@ -15,15 +15,40 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Scanner;
 
-public class Client {
+public class Client implements Runnable {
     InetAddress serverIp;
-    int serverPort;
+    int serverPort = -1;
     private String userID;
     private String directoryPath;
 
-    public void start() {
+    private boolean autoFind;
+
+    final Object lock = new Object();
+
+    public Client(boolean findServer) {
+        autoFind = findServer;
+    }
+
+    @Override
+    public void run() {
+        MulticastDiscovery multicastDiscovery = new MulticastDiscovery(lock);
+
+        if (autoFind) {
+            Thread thread = new Thread(multicastDiscovery);
+            thread.start();
+            synchronized (lock) {
+                try {
+                    lock.wait();
+                } catch (InterruptedException e) {
+                    // Empty
+                }
+            }
+            serverIp = multicastDiscovery.getIp();
+            serverPort = multicastDiscovery.getServerUSPPort();
+        }
+
         while (true) {
-            getUserInput();
+            if(!autoFind) getUserInput();
 
             Socket socket = new Socket();
 
@@ -54,9 +79,9 @@ public class Client {
                     Thread.sleep(1000); // Delay between sending files
 
                     // Sending files to server
-                    if(taskList.outdatedFiles().isEmpty()) {
+                    if (taskList.outdatedFiles().isEmpty()) {
                         System.out.println("All files were up to date!");
-                    } else{
+                    } else {
                         int filesSent = sendFiles(socket, taskList);
                         if (filesSent != taskList.outdatedFiles().size()) {
                             System.out.println("There was a problem with sending some files.\n");
@@ -71,7 +96,7 @@ public class Client {
                     System.out.println("Next synchronization: " + nextSync);
                     Duration diff = Duration.between(LocalDateTime.now(), nextSync);
                     Thread.sleep(diff);
-
+                    if (autoFind) multicastDiscovery.setPaused(true);
 
                 } catch (InterruptedException e) {
                     throw new RuntimeException(e);
@@ -130,18 +155,23 @@ public class Client {
     private void getUserInput() {
         Scanner scanner = new Scanner(System.in);
 
-        while (true) {
-            try {
-                System.out.print("Enter server IP: ");
-                serverIp = InetAddress.getByName(scanner.nextLine());
-                System.out.print("Enter server port: ");
-                serverPort = Integer.parseInt(scanner.nextLine());
-                break;
-            } catch (Exception e) {
-                System.out.println("Invalid IP or port, try again.\n");
+        if (!autoFind) {
+            while (true) {
+                try {
+                    System.out.print("Enter server IP: ");
+                    serverIp = InetAddress.getByName(scanner.nextLine());
+                    System.out.print("Enter server port: ");
+                    serverPort = Integer.parseInt(scanner.nextLine());
+                    if (serverPort < 1 || serverPort > 65535) {
+                        System.out.println("Invalid port\n");
+                        continue;
+                    }
+                    break;
+                } catch (Exception e) {
+                    System.out.println("Invalid IP or port, try again.\n");
+                }
             }
         }
-
         System.out.print("Enter your ID: ");
         userID = scanner.nextLine();
 
