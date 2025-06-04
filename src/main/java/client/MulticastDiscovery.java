@@ -40,8 +40,6 @@ public class MulticastDiscovery implements Runnable {
             socket.joinGroup(group);
             socket.setSoTimeout(5000);
 
-
-
             while (true) {
                 while (paused);
                 System.out.println("Waiting for server response on multicast...");
@@ -56,22 +54,18 @@ public class MulticastDiscovery implements Runnable {
                     DatagramPacket responsePacket = new DatagramPacket(buf, buf.length);
                     socket.receive(responsePacket);
 
-                    InetAddress localAddress = InetAddress.getLocalHost();
-                    if (responsePacket.getAddress().equals(localAddress)) {
-                        socket.receive(responsePacket);
+                    Message response = getMessageFromPacket(responsePacket, socket);
+
+                    while (!"OFFER".equals(response.type())) {
+                        response = getMessageFromPacket(responsePacket, socket);
                     }
 
-                    String json = new String(responsePacket.getData(), 0, responsePacket.getLength());
-                    Message response = JsonUtils.fromJson(json, Message.class);
-
-                    if ("OFFER".equals(response.type())) {
-                        System.out.println("Received OFFER: " + response);
-                        ip = responsePacket.getAddress();
-                        serverUSPPort = response.port();
-                        paused = true;
-                        synchronized (lock) {
-                            lock.notify();
-                        }
+                    System.out.println("Received OFFER: " + response);
+                    ip = responsePacket.getAddress();
+                    serverUSPPort = response.port();
+                    paused = true;
+                    synchronized (lock) {
+                        lock.notify();
                     }
 
                 } catch (SocketTimeoutException e) {
@@ -84,4 +78,11 @@ public class MulticastDiscovery implements Runnable {
             e.printStackTrace();
         }
     }
+
+    private Message getMessageFromPacket(DatagramPacket packet, DatagramSocket socket) throws IOException {
+        socket.receive(packet);
+        String json = new String(packet.getData(), 0, packet.getLength());
+        return JsonUtils.fromJson(json, Message.class);
+    }
+
 }

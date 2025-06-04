@@ -85,12 +85,9 @@ public class ClientHandler implements Runnable {
             }
 
             deleteRedundantFiles(filesServerside, filesClientside, clientsDirectory);
-            Thread.sleep(10000);
-            onComplete.run();
+            System.out.println("Client served, waiting for the next one...");
         } catch (IOException e) {
             System.err.println(e.getMessage());
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
         } finally {
             onComplete.run();
         }
