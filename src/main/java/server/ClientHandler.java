@@ -20,11 +20,14 @@ public class ClientHandler implements Runnable {
     private final Socket clientSocket;
     private final int syncInterval;
     private final Path archivePath;
+    private final Runnable onComplete;
 
-    public ClientHandler(Socket socket, int syncInterval, Path archivePath) {
+
+    public ClientHandler(Socket socket, int syncInterval, Path archivePath, Runnable onComplete) {
         this.clientSocket = socket;
         this.syncInterval = syncInterval;
         this.archivePath = archivePath;
+        this.onComplete = onComplete;
     }
 
     @Override
@@ -82,9 +85,14 @@ public class ClientHandler implements Runnable {
             }
 
             deleteRedundantFiles(filesServerside, filesClientside, clientsDirectory);
-
+            Thread.sleep(10000);
+            onComplete.run();
         } catch (IOException e) {
             System.err.println(e.getMessage());
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        } finally {
+            onComplete.run();
         }
     }
 

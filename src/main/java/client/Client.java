@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Scanner;
 
@@ -115,6 +116,22 @@ public class Client implements Runnable {
                 BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
                 BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()))
         ) {
+            String serverSignal;
+            while (true) {
+                serverSignal = reader.readLine();
+
+                if ("BUSY".equals(serverSignal)) {
+                    System.out.println("Server is busy. Waiting...");
+                    Thread.sleep(5000);
+                } else if ("READY".equals(serverSignal)) {
+                    System.out.println("Server is ready. Proceeding with synchronization...");
+                    break;
+                } else {
+                    System.out.println("Unexpected server message: " + serverSignal);
+                    return;
+                }
+            }
+
             List<FileInfo> files = getFiles();
             ClientData clientInfo = new ClientData(userID, files);
             String clientInfoJson = JsonUtils.toJson(clientInfo);
@@ -139,18 +156,18 @@ public class Client implements Runnable {
 
             String localDateString = reader.readLine();
             LocalDateTime nextSync = LocalDateTime.parse(localDateString);
-            System.out.println("Next synchronization: " + nextSync);
+            System.out.println("Next synchronization: " + nextSync.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
 
             Duration waitTime = Duration.between(LocalDateTime.now(), nextSync);
             Thread.sleep(waitTime);
 
         } catch(NoSuchFileException e){
             System.err.println("Files doesn't exist. " + e.getMessage());
-        }
-        catch (IOException | InterruptedException e) {
+        } catch (IOException | InterruptedException e) {
             System.err.println("Error during synchronization: " + e.getMessage());
         }
     }
+
 
     private int sendFiles(Socket socket, TaskList taskList) throws IOException {
         int filesSent = 0;
